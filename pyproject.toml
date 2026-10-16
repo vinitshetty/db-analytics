@@ -1,0 +1,18 @@
+[project]
+name = "db-analytics"
+version = "0.1.0"
+description = "Data warehouse with Mistral Workflow + SLayer semantic layer for Vibe Work"
+requires-python = ">=3.12"
+dependencies = [
+    "mistralai>=1.0.0",
+    "mistralai-workflows[mistralai]>=0.1.0",
+    "motley-slayer>=1.2.0",
+    "pydantic>=2.0.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
