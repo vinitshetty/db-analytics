@@ -74,7 +74,7 @@ Star schema with 5,000 synthetic orders spanning Jan 2023 – Dec 2024:
 
 ```bash
 # Clone the repo
-git clone https://github.com/vinut-shetty/db-analytics.git
+git clone https://github.com/vinitshetty/db-analytics.git
 cd db-analytics
 
 # Install dependencies
@@ -156,6 +156,46 @@ Mistral Workflows use [Temporal](https://temporal.io/) for durable execution. Th
 | `make execute workflow=... input=...` | Trigger a workflow from the CLI |
 | `make generate-data` | Regenerate the SQLite warehouse with synthetic data |
 | `make setup` | Install dependencies and show setup instructions |
+
+## Quick Demo
+
+Four commands to go from zero to a working demo:
+
+```bash
+# 1. Clone & install
+git clone https://github.com/vinitshetty/db-analytics.git
+cd db-analytics
+uv sync
+
+# 2. Configure (add your Mistral API key)
+cp .env.example .env
+# Edit .env → set MISTRAL_API_KEY=your-key-here
+
+# 3. Generate the warehouse (5,000 synthetic orders)
+make generate-data
+
+# 4. Start the worker (keep this terminal open)
+make start-worker
+```
+
+Then open [Vibe Work](https://work.mistral.ai) → click **+** → select **Data Warehouse Query** → ask a question.
+
+You'll see 4 progress steps in the Vibe Work UI:
+
+| Step | What happens |
+|---|---|
+| Discovering relevant schema | SLayer searches its model index for columns/tables matching your question |
+| Building query plan | Mistral LLM generates a semantic query from the discovered context |
+| Querying the warehouse | SLayer translates the query to SQL and executes against local SQLite |
+| Analyzing results | Mistral LLM produces a markdown report with table and insights |
+
+**Example questions to try:**
+- "What is our total revenue?"
+- "Show revenue by region"
+- "Who are our top 5 customers by order count?"
+- "Monthly revenue trend for 2024"
+- "Profit by product category"
+- "Average order value by customer segment"
 
 ## License
 
