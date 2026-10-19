@@ -124,7 +124,171 @@ Starting worker – connected to Mistral orchestrator ...
 make execute workflow=data-warehouse-query input='{}'
 ```
 
-## How It Works
+## How It Works — Detailed Walkthrough
+
+For the question **"Show revenue by region"**, here's exactly what happens at each step:
+
+### Step 1 — `discover_context` (SLayer — no LLM)
+
+SLayer's `SearchService` searches its model index for columns, tables, and joins relevant to the question:
+
+```
+SearchService.search(question="Show revenue by region", max_results=10)
+
+Search hits:
+  column:  warehouse.fact_order.revenue      (score=0.0164)
+  column:  warehouse.dim_region.region_name  (score=0.0161)
+  model:   warehouse.fact_order              (score=0.0159)
+  model:   warehouse.dim_region              (score=0.0156)
+  column:  warehouse.dim_customer.region     (score=0.0154)
+  ...
+
+Unique models found: [dim_region, fact_order]
+```
+
+Then `InspectService` fetches detailed schema for **only the matched models** (not the whole database):
+
+```
+InspectService.inspect(reference="fact_order", entity_type="model")
+InspectService.inspect(reference="dim_region", entity_type="model")
+```
+
+This produces ~3K chars of targeted context:
+
+```markdown
+# Model: `fact_order`
+| name | type |
+| revenue | DOUBLE |
+| cost | DOUBLE |
+| profit | DOUBLE |
+| order_status | TEXT |
+| region_id | INT |
+...
+Joins to: dim_region (region_id = region_id)
+
+# Model: `dim_region`
+| name | type |
+| region_name | TEXT |
+| country | TEXT |
+| continent | TEXT |
+...
+Joins to: fact_order (region_id = region_id)
+```
+
+With 1,000s of tables, only the relevant ones are inspected — the LLM never sees the rest.
+
+### Step 2 — `generate_query_plan` (Mistral LLM call #1)
+
+The discovered context is injected into a system prompt that teaches the LLM the `SlayerQuery` format:
+
+```
+SYSTEM PROMPT:
+  You are a data analyst. You have access to a semantic layer (SLayer)...
+
+  [discovered schema context from Step 1]     ← what columns/joins exist
+
+  === SLAYER QUERY FORMAT ===                  ← how to structure the output
+  {
+    "source_model": "<model_name>",
+    "measures": ["sum(column)", "count(*)"],
+    "dimensions": ["joined_model.column"],
+    "filters": ["column = 'value'"],
+    ...
+  }
+
+  === RULES ===                                ← business logic
+  - Always filter to order_status = 'Completed' unless asked otherwise.
+
+  Respond ONLY with a JSON object.
+
+USER: Show revenue by region
+```
+
+The LLM's job is **slot-filling** — pick the right column names from the discovered schema and put them in the right fields. It outputs:
+
+```json
+{
+  "query": {
+    "source_model": "fact_order",
+    "measures": ["sum(revenue)"],
+    "dimensions": ["dim_region.region_name"],
+    "filters": ["order_status = 'Completed'"]
+  }
+}
+```
+
+The LLM never writes SQL. It only selects measures, dimensions, and filters from the schema context.
+
+The Mistral API is called with `response_format={"type": "json_object"}` to guarantee valid JSON output.
+
+### Step 3 — `execute_warehouse_query` (SLayer — no LLM)
+
+SLayer's `SlayerQueryEngine` takes the `SlayerQuery` and deterministically generates SQL:
+
+```
+SlayerQuery(                              SLayer engine (no LLM)
+  source_model="fact_order",         ──►  SELECT dim_region.region_name,
+  measures=["sum(revenue)"],                     SUM(fact_order.revenue) AS revenue_sum
+  dimensions=["dim_region.          ──►  FROM fact_order
+    region_name"],                        LEFT JOIN dim_region
+  filters=["order_status                   ON fact_order.region_id = dim_region.region_id
+    = 'Completed'"]                 ──►  WHERE fact_order.order_status = 'Completed'
+)                                         GROUP BY dim_region.region_name
+```
+
+SLayer handles:
+- **Join resolution** — knows `fact_order.region_id → dim_region.region_id` from auto-ingestion
+- **SQL dialect** — generates SQLite SQL here, would generate Snowflake/Postgres SQL for other databases
+- **Execution** — runs the query via SQLAlchemy and returns JSON rows
+
+```json
+[
+  {"fact_order.dim_region.region_name": "Europe",        "fact_order.revenue_sum": 322299.29},
+  {"fact_order.dim_region.region_name": "Asia Pacific",  "fact_order.revenue_sum": 299663.86},
+  {"fact_order.dim_region.region_name": "Africa",        "fact_order.revenue_sum": 287448.56},
+  {"fact_order.dim_region.region_name": "Latin America", "fact_order.revenue_sum": 279950.05},
+  {"fact_order.dim_region.region_name": "North America", "fact_order.revenue_sum": 232923.36}
+]
+```
+
+### Step 4 — `analyze_results` (Mistral LLM call #2)
+
+The LLM receives the question, the query, and the raw JSON rows, and produces a human-friendly report:
+
+```
+Input to LLM:
+  Question: "Show revenue by region"
+  Query: {"source_model": "fact_order", "measures": ["sum(revenue)"], ...}
+  Results: [{"region_name": "Europe", "revenue_sum": 322299.29}, ...]
+
+Output from LLM:
+  ## Revenue by Region
+
+  | Region | Revenue |
+  |---|---|
+  | Europe | $322,299.29 |
+  | Asia Pacific | $299,663.86 |
+  | Africa | $287,448.56 |
+  | Latin America | $279,950.05 |
+  | North America | $232,923.36 |
+
+  - Europe leads with 22.7% of total revenue
+  - North America trails at 16.4%
+  - Total revenue across all regions: $1,422,285.12
+```
+
+### What uses LLM vs. what doesn't
+
+| Component | Uses LLM? | What it does |
+|---|---|---|
+| `ingest_datasource()` | No | Auto-discovers tables, columns, types, joins from the database |
+| `SearchService.search()` | No | Keyword/embedding search over the model index |
+| `InspectService.inspect()` | No | Renders detailed schema for specific models |
+| `generate_query_plan()` | **Yes** (LLM call #1) | Natural language → structured `SlayerQuery` JSON |
+| `SlayerQueryEngine.execute_sync()` | No | `SlayerQuery` → SQL → execute → JSON rows |
+| `analyze_results()` | **Yes** (LLM call #2) | JSON rows → markdown report with insights |
+
+**2 LLM calls per question.** Everything else is deterministic code. The LLM never writes SQL — it only picks columns and aggregations from the discovered schema. SLayer guarantees the SQL is valid, joins are correct, and the right dialect is used.
 
 ### Temporal Sandbox
 
@@ -134,19 +298,11 @@ Mistral Workflows use [Temporal](https://temporal.io/) for durable execution. Th
 
 [SLayer](https://github.com/MotleyAI/slayer) (motley-slayer) provides the semantic layer:
 
-- **Auto-ingestion** — on worker startup, SLayer scans `warehouse.db` and auto-discovers all tables, columns, types, joins, and cardinalities
-- **Search** — `SearchService.search()` finds relevant models and columns for a given question using keyword matching
+- **Auto-ingestion** — on worker startup, SLayer scans the database and auto-discovers all tables, columns, types, joins, and cardinalities
+- **Search** — `SearchService.search()` finds relevant models and columns for a given question
 - **Inspect** — `InspectService.inspect()` renders detailed schema for specific models
-- **Query engine** — `SlayerQueryEngine` translates `SlayerQuery` objects (measures, dimensions, filters) into SQL, handles joins automatically, and executes against the database
-
-### Mistral Workflow Activities
-
-| Activity | What it does |
-|---|---|
-| `discover_context` | Searches SLayer for relevant models/columns, inspects them, returns targeted schema context |
-| `generate_query_plan` | Sends discovered context + question to Mistral LLM, gets back a `SlayerQuery` JSON |
-| `execute_warehouse_query` | Passes the `SlayerQuery` to SLayer's engine for SQL generation and execution |
-| `analyze_results` | Sends question + query + results to Mistral LLM for a human-friendly markdown report |
+- **Query engine** — `SlayerQueryEngine` translates `SlayerQuery` objects into SQL, handles joins automatically, and executes against the database
+- **Database support** — SQLite, PostgreSQL, MySQL, Snowflake, BigQuery, ClickHouse, SQL Server, Trino (via SQLAlchemy)
 
 ## Makefile Commands
 
