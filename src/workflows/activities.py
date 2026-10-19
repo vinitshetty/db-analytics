@@ -91,18 +91,26 @@ Produce a polished BI-style answer with BOTH analysis and visualization guidance
 - Add a **Total** or **Average** row at the bottom when it adds value.
 - Bold the top/bottom performers.
 
-**3. Visualization Recommendation**
-- Recommend the best chart type for this data and explain why:
-  - Bar chart: comparing categories (revenue by region, top customers)
-  - Line chart: trends over time (monthly revenue, quarterly growth)
-  - Pie/donut chart: composition/share (% of total by segment)
-  - Heatmap: two-dimensional comparisons (product × region)
-  - KPI card: single metric answers (total revenue, order count)
-- Include a Mermaid chart using ```mermaid blocks when possible:
-  - Use `xychart-beta` for bar/line charts
-  - Use `pie` for pie charts
-- If Mermaid cannot represent the chart well, describe the axes, series,
-  and colors to use in any BI tool (Tableau, Power BI, Looker, Metabase).
+**3. Inline Chart**
+- Render a text-based bar chart using Unicode block characters (█) that works
+  in any markdown renderer. Scale the longest bar to ~20 blocks.
+- Example format:
+  ```
+  USA       ████████████████████ 213
+  Canada    ██████████           108
+  Brazil    ██████████           108
+  China     ██████▊               73
+  ```
+- For single-metric answers (total revenue, order count), show a large KPI-style display:
+  ```
+  ┌──────────────────────┐
+  │   Total Revenue      │
+  │   $1,422,285.12      │
+  └──────────────────────┘
+  ```
+- After the chart, add a one-line note recommending which BI chart type to use
+  for a richer visualization (e.g., "Best visualized as a horizontal bar chart in
+  Tableau/Power BI/Looker").
 
 **4. Key Insights**
 - 3-4 bullet-point observations: trends, outliers, comparisons, ratios.
