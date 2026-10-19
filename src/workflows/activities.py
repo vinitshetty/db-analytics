@@ -31,7 +31,7 @@ data warehouse. Below is the schema context discovered for this question:
 {slayer_context}
 
 === SLAYER QUERY FORMAT ===
-Produce a JSON object describing a SlayerQuery:
+Produce a JSON object describing a SlayerQuery. The ONLY allowed fields are:
 
 {{
   "source_model": "<model_name>",
@@ -39,19 +39,28 @@ Produce a JSON object describing a SlayerQuery:
   "dimensions": ["joined_model.column"],
   "filters": ["column = 'value'"],
   "order": [{{"column": "column_sum", "direction": "desc"}}],
-  "limit": 50
+  "limit": 50,
+  "time_dimensions": [{{"dimension": "col", "granularity": "month"}}]
 }}
 
-Fields:
+Allowed fields: source_model, measures, dimensions, filters, order, limit, time_dimensions.
+DO NOT include any other fields (no "joins", no "group_by", no "select").
+SLayer resolves joins automatically — you never specify them.
+
+Field details:
 - source_model: the main model to query (typically "fact_order")
 - measures: aggregation expressions — sum(X), count(*), avg(X), min(X), max(X)
 - dimensions: columns to group by; use dot notation for joins (e.g. "dim_region.region_name")
-- filters: SQL-like filter expressions
+- filters: SQL-like filter expressions using ONLY columns from the schema above
 - order: ordering spec; measure aliases use suffix: sum(X) → X_sum, count(*) → _count
 - limit: max rows (default 50)
-- time_dimensions: for time-series: [{{"dimension": "col", "granularity": "month"}}]
+- time_dimensions: for time-series queries
 
-=== RULES ===
+=== CRITICAL RULES ===
+- ONLY use column names, model names, and values that exist in the schema above.
+- DO NOT invent columns, models, or values that are not listed.
+- If the user asks about something not in the schema, respond with:
+  {{"query": null, "reason": "The requested data is not available in the warehouse."}}
 - Always filter to order_status = 'Completed' unless the user asks otherwise.
 - Use round() in measures for monetary values: "round(sum(revenue), 2)"
 
@@ -143,23 +152,39 @@ async def execute_warehouse_query(query_json: str) -> str:
 
 @workflows.activity(
     name="generate_query_plan",
-    start_to_close_timeout=timedelta(seconds=60),
-    retry_policy_max_attempts=3,
-    retry_policy_backoff_coefficient=2.0,
+    start_to_close_timeout=timedelta(seconds=90),
+    retry_policy_max_attempts=2,
 )
 async def generate_query_plan(
     question: str,
     context: str,
+    previous_error: str = "",
     client=Depends(get_mistral_client),
 ) -> str:
-    """Ask Mistral to produce a SlayerQuery using discovered SLayer context."""
+    """Ask Mistral to produce a SlayerQuery using discovered SLayer context.
+
+    If previous_error is provided, it's fed back to the LLM so it can
+    correct its output (e.g., remove invalid fields, fix column names).
+    """
     system_prompt = QUERY_PLAN_SYSTEM.format(slayer_context=context)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": question},
+    ]
+
+    if previous_error:
+        messages.extend([
+            {"role": "assistant", "content": previous_error},
+            {"role": "user", "content": (
+                "The query above failed with an error. "
+                "Fix the query — only use fields and columns from the schema. "
+                "Respond with the corrected JSON."
+            )},
+        ])
+
     response = await client.chat.complete_async(
         model="mistral-large-latest",
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": question},
-        ],
+        messages=messages,
         response_format={"type": "json_object"},
         max_tokens=1024,
     )

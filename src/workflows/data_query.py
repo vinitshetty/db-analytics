@@ -92,8 +92,7 @@ class DataWarehouseQueryWorkflow(workflows.InteractiveWorkflow):
                 raw_plan = await generate_query_plan(question, context)
                 try:
                     plan = json.loads(raw_plan)
-                    query_dict = plan.get("query", {})
-                    query_json = json.dumps(query_dict)
+                    query_dict = plan.get("query")
                 except json.JSONDecodeError:
                     return workflows_mistralai.ChatAssistantWorkflowOutput(
                         content=[workflows_mistralai.TextOutput(
@@ -103,19 +102,68 @@ class DataWarehouseQueryWorkflow(workflows.InteractiveWorkflow):
                         isError=True,
                     )
 
-            # Step 3 – SLayer executes the semantic query
+                # LLM indicated the data isn't available
+                if query_dict is None:
+                    reason = plan.get(
+                        "reason",
+                        "The requested data is not available in the warehouse.",
+                    )
+                    return workflows_mistralai.ChatAssistantWorkflowOutput(
+                        content=[workflows_mistralai.TextOutput(text=reason)],
+                    )
+
+                query_json = json.dumps(query_dict)
+
+            # Step 3 – SLayer executes the semantic query (with one retry)
             async with query_item:
                 results_json = await execute_warehouse_query(query_json)
                 results = json.loads(results_json)
 
+                # If it failed, retry once — feed the error back to the LLM
                 if isinstance(results, dict) and "error" in results:
-                    return workflows_mistralai.ChatAssistantWorkflowOutput(
-                        content=[workflows_mistralai.TextOutput(
-                            text=f"Query failed: {results['error']}\n\n"
-                                 f"Query attempted:\n```json\n{query_json}\n```"
-                        )],
-                        isError=True,
+                    error_context = (
+                        f'{{"attempted_query": {query_json}, '
+                        f'"error": "{results["error"]}"}}'
                     )
+                    raw_plan = await generate_query_plan(
+                        question, context, error_context,
+                    )
+                    try:
+                        plan = json.loads(raw_plan)
+                        query_dict = plan.get("query")
+                        if query_dict is None:
+                            reason = plan.get(
+                                "reason",
+                                "The requested data is not available "
+                                "in the warehouse.",
+                            )
+                            return workflows_mistralai.ChatAssistantWorkflowOutput(
+                                content=[workflows_mistralai.TextOutput(
+                                    text=reason,
+                                )],
+                            )
+                        query_json = json.dumps(query_dict)
+                    except json.JSONDecodeError:
+                        return workflows_mistralai.ChatAssistantWorkflowOutput(
+                            content=[workflows_mistralai.TextOutput(
+                                text=f"Query failed: {results['error']}"
+                            )],
+                            isError=True,
+                        )
+
+                    results_json = await execute_warehouse_query(query_json)
+                    results = json.loads(results_json)
+
+                    if isinstance(results, dict) and "error" in results:
+                        return workflows_mistralai.ChatAssistantWorkflowOutput(
+                            content=[workflows_mistralai.TextOutput(
+                                text=f"Query failed after retry: "
+                                     f"{results['error']}\n\n"
+                                     f"Query attempted:\n```json\n"
+                                     f"{query_json}\n```"
+                            )],
+                            isError=True,
+                        )
 
             # Step 4 – LLM analyses the rows and writes a report
             async with analysis_item:
