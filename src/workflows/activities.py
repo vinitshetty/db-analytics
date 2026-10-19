@@ -59,8 +59,11 @@ Field details:
 === CRITICAL RULES ===
 - ONLY use column names, model names, and values that exist in the schema above.
 - DO NOT invent columns, models, or values that are not listed.
-- If the user asks about something not in the schema, respond with:
-  {{"query": null, "reason": "The requested data is not available in the warehouse."}}
+- If ANY part of the user's question refers to columns or values not in the schema,
+  DO NOT attempt a query. Instead respond with:
+  {{"query": null, "reason": "Explain what is not available and what IS available."}}
+- NEVER return both a "query" and a "reason". Either the query is valid and complete,
+  or query is null with a reason. Pick one.
 - Always filter to order_status = 'Completed' unless the user asks otherwise.
 - Use round() in measures for monetary values: "round(sum(revenue), 2)"
 
