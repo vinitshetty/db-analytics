@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>db-analytics — Architecture</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Roboto, Helvetica, sans-serif; background: #f8f9fa; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+  .slide { background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08); padding: 48px 56px; max-width: 1100px; width: 100%; }
+  .title { font-size: 28px; font-weight: 700; color: #1a1a2e; text-align: center; margin-bottom: 4px; }
+  .subtitle { font-size: 15px; color: #6b7280; text-align: center; margin-bottom: 40px; }
+  .flow { display: flex; align-items: flex-start; justify-content: center; gap: 12px; }
+  .step { flex: 1; max-width: 200px; text-align: center; }
+  .icon-box { width: 72px; height: 72px; border-radius: 16px; display: flex; align-items: center; justify-content: center; margin: 0 auto 12px; font-size: 32px; }
+  .green { background: #ecfdf5; border: 2px solid #34d399; }
+  .blue { background: #eff6ff; border: 2px solid #60a5fa; }
+  .orange { background: #fff7ed; border: 2px solid #fb923c; }
+  .step-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: #9ca3af; margin-bottom: 4px; }
+  .step-title { font-size: 15px; font-weight: 700; color: #1a1a2e; margin-bottom: 6px; }
+  .step-desc { font-size: 12px; color: #6b7280; line-height: 1.5; }
+  .step-tech { display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 10px; margin-top: 8px; }
+  .tech-slayer { background: #ecfdf5; color: #059669; }
+  .tech-llm { background: #eff6ff; color: #2563eb; }
+  .arrow { display: flex; align-items: center; padding-top: 30px; color: #d1d5db; font-size: 24px; }
+  .example { margin-top: 36px; background: #f9fafb; border-radius: 12px; padding: 20px 28px; border: 1px solid #e5e7eb; }
+  .example-title { font-size: 13px; font-weight: 700; color: #374151; margin-bottom: 12px; }
+  .example-flow { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; justify-content: center; }
+  .ex-box { font-size: 12px; color: #374151; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px 14px; line-height: 1.5; }
+  .ex-box code { font-family: 'SF Mono', Consolas, monospace; font-size: 11px; background: #f3f4f6; padding: 1px 4px; border-radius: 3px; }
+  .ex-arrow { color: #9ca3af; font-size: 18px; }
+  .footer { margin-top: 28px; display: flex; justify-content: center; gap: 32px; font-size: 12px; color: #9ca3af; }
+  .footer-item { display: flex; align-items: center; gap: 6px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; }
+  .dot-green { background: #34d399; }
+  .dot-blue { background: #60a5fa; }
+</style>
+</head>
+<body>
+<div class="slide">
+  <div class="title">Data Warehouse Query Workflow</div>
+  <div class="subtitle">Natural language → SLayer semantic layer → BI insights &nbsp;|&nbsp; Mistral Vibe Work + SLayer + SQLite</div>
+
+  <div class="flow">
+    <div class="step">
+      <div class="icon-box orange">💬</div>
+      <div class="step-label">User</div>
+      <div class="step-title">Ask a Question</div>
+      <div class="step-desc">Natural language question via Vibe Work chat interface</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="step">
+      <div class="icon-box green">🔍</div>
+      <div class="step-label">Step 1</div>
+      <div class="step-title">Discover Schema</div>
+      <div class="step-desc">Search &amp; inspect only the relevant tables and columns</div>
+      <div class="step-tech tech-slayer">SLayer</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="step">
+      <div class="icon-box blue">🧠</div>
+      <div class="step-label">Step 2</div>
+      <div class="step-title">Build Query</div>
+      <div class="step-desc">LLM picks measures, dimensions &amp; filters from schema</div>
+      <div class="step-tech tech-llm">Mistral LLM</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="step">
+      <div class="icon-box green">⚡</div>
+      <div class="step-label">Step 3</div>
+      <div class="step-title">Execute Query</div>
+      <div class="step-desc">Semantic query → SQL generation → database execution</div>
+      <div class="step-tech tech-slayer">SLayer</div>
+    </div>
+
+    <div class="arrow">→</div>
+
+    <div class="step">
+      <div class="icon-box blue">📊</div>
+      <div class="step-label">Step 4</div>
+      <div class="step-title">Analyze &amp; Visualize</div>
+      <div class="step-desc">BI report with tables, charts &amp; actionable insights</div>
+      <div class="step-tech tech-llm">Mistral LLM</div>
+    </div>
+  </div>
+
+  <div class="example">
+    <div class="example-title">Example: "Show revenue by region"</div>
+    <div class="example-flow">
+      <div class="ex-box"><b>Search hits</b><br/><code>fact_order.revenue</code><br/><code>dim_region.region_name</code></div>
+      <div class="ex-arrow">→</div>
+      <div class="ex-box"><b>SlayerQuery</b><br/><code>sum(revenue)</code><br/><code>by dim_region.region_name</code></div>
+      <div class="ex-arrow">→</div>
+      <div class="ex-box"><b>SQL (auto-generated)</b><br/><code>SELECT region_name,</code><br/><code>SUM(revenue) FROM ...</code></div>
+      <div class="ex-arrow">→</div>
+      <div class="ex-box"><b>BI Report</b><br/>Europe &nbsp;████ $322K<br/>Asia Pac ███ $299K<br/>Africa &nbsp;&nbsp;███ $287K</div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="footer-item"><div class="dot dot-green"></div> Deterministic — no LLM</div>
+    <div class="footer-item"><div class="dot dot-blue"></div> LLM call (2 per question)</div>
+  </div>
+</div>
+</body>
+</html>
